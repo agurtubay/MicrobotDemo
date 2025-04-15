@@ -1,4 +1,7 @@
+import asyncio
 import streamlit as st
+from semantic_kernel.contents.chat_history import ChatHistory
+from src.kernel_utils import initialize_kernel, get_reply
 
 # ----- Custom CSS for dark theme and positioning -----
 CUSTOM_CSS = """
@@ -24,15 +27,15 @@ html, body, [class^='stMain']  {
     background-color: #435366 !important;  /* Darker slider track */
 }
 
-/* Position and style the 'Apply Configuration' button at bottom-right of sidebar */
-[class="stElementContainer element-container st-key-apply-config st-emotion-cache-kj6hex eu6p4el1"]{
-    position: fixed;
-    bottom: 20px;
-    color: #FFFFFF;
-    border-radius: 5px;
-    border: none;
-    padding: 0.6rem 1rem;
-}
+# /* Position and style the 'Apply Configuration' button at bottom-right of sidebar */
+# [class="stElementContainer element-container st-key-apply-config st-emotion-cache-kj6hex eu6p4el1"]{
+#     position: fixed;
+#     bottom: 20px;
+#     color: #FFFFFF;
+#     border-radius: 5px;
+#     border: none;
+#     padding: 0.6rem 1rem;
+# }
 
 /* Center the header (logo, title, subtitle) in main area */
 #centered-header {
@@ -63,33 +66,41 @@ html, body, [class^='stMain']  {
     width:100%;
 }
 
-[class="st-emotion-cache-130o8tb eu6p4el5"] {
+[class="st-emotion-cache-qcpnpn eu6p4el5"] {
     position:fixed;
     bottom:30px;
     width: 73vw;
 }
-
-/* Chat bubbles styling */
-.user-message {
-    text-align: right;
-    background-color: #2E8B57; /* a green shade for user's bubble */
-    border-radius: 10px;
-    margin: 5px 0;
-    padding: 8px 12px;
-    display: inline-block;
-    max-width: 80%;
-}
-.assistant-message {
-    text-align: left;
-    background-color: #333333;
-    border-radius: 10px;
-    margin: 5px 0;
-    padding: 8px 12px;
-    display: inline-block;
-    max-width: 80%;
-}
 </style>
 """
+
+# -----------------------------------------------------------------------------
+# DEFAULT KERNEL INITIALIZATION
+# -----------------------------------------------------------------------------
+# Define a default configuration. The key "selected_model" is used internally.
+if "kernel_config" not in st.session_state:
+    default_config = {
+        "selected_model": "gpt-4o-mini",  # default model, adjust as needed
+        "max_tokens": 100,                # default max tokens
+        "temperature": 0.7,               # default temperature
+        "plugins": {}                     # plugins will be ignored for now
+    }
+    st.session_state["kernel_config"] = default_config
+
+# Retrieve or create the Kernel and ChatCompletion objects
+if "kernel" not in st.session_state or "chat_completion" not in st.session_state:
+    # Make sure your initialize_kernel returns (kernel, chat_completion) in that order.
+    st.session_state["kernel"], st.session_state["chat_completion"] = initialize_kernel(
+        st.session_state["kernel_config"]
+    )
+
+# Initialize the chat history
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = ChatHistory()
+
+# Keep track of messages to display in bubbles
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []
 
 # Set page config with wide layout
 st.set_page_config(page_title="MicroBot", layout="wide")
@@ -127,67 +138,101 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("### Plugins")
+    # (For now leave plugins aside – they will be empty in our kernel configuration.)
     location_plugin = st.checkbox("Location", value=True)
     weather_plugin = st.checkbox("Weather", value=True)
     time_plugin = st.checkbox("Time", value=False)
 
     if st.button("Apply Configuration", key="apply-config"):
-        # Save configuration and reset chat
-        st.session_state["kernel_config"] = {
-            "model": model,
+        # Build the configuration with the expected key names
+        config = {
+            "selected_model": model,
             "max_tokens": max_tokens,
             "temperature": temperature,
-            "plugins": {
-                "location": location_plugin,
-                "weather": weather_plugin,
-                "time": time_plugin
-            }
+            "plugins": {}  # Ignore plugins for now, or you can include the values if you plan on using them later.
         }
-        st.session_state["messages"] = []
+        st.session_state["kernel_config"] = config
+        # Re-initialize the kernel with the new configuration.
+        st.session_state["kernel"], st.session_state["chat_completion"] = initialize_kernel(config)
+        st.session_state["messages"] = []  # Reset chat history
         st.success("Configuration applied. Chat history reset.")
 
 ############################
 # MAIN AREA - CHAT DISPLAY
 ############################
-if "messages" not in st.session_state:
-    st.session_state["messages"] = []
-
-chat_container = st.container()
-chat_container.markdown('<div id="chat-container">', unsafe_allow_html=True)
+# ------------------------------------------------------------------------------------
+# 4. Display existing chat messages in bubble style
+# ------------------------------------------------------------------------------------
 for msg in st.session_state["messages"]:
     if msg["role"] == "user":
+        # Right-aligned (green bubble)
         st.markdown(
-            f"<div class='user-message'><strong>You:</strong> {msg['content']}</div>",
+            f"""
+            <div style="background-color:#2E8B57;; 
+                        border-radius:10px; 
+                        margin:5px 0; 
+                        padding:8px 12px; 
+                        display:inline-block;
+                        max-width:80%;">
+                <strong>You:</strong> {msg['content']}
+            </div>
+            """,
             unsafe_allow_html=True
         )
     else:
+        # Left-aligned (dark bubble)
         st.markdown(
-            f"<div class='assistant-message'><strong>Assistant:</strong> {msg['content']}</div>",
+            f"""
+            <div style="background-color:#333333; 
+                        border-radius:10px; 
+                        margin:5px 0; 
+                        padding:8px 12px; 
+                        display:inline-block; 
+                        max-width:80%;">
+                <strong>Assistant:</strong> {msg['content']}
+            </div>
+            """,
             unsafe_allow_html=True
         )
-chat_container.markdown('</div>', unsafe_allow_html=True)
 
 ############################
 # FIXED INPUT BAR AT THE BOTTOM
 ############################
-# Create an empty container to hold our custom HTML wrapper
+def send_message():
+    user_txt = st.session_state["chat_temp"].strip()
+    if user_txt:
+        # Save user message to display
+        st.session_state["messages"].append({"role": "user", "content": user_txt})
+
+        # Retrieve kernel components
+        kernel = st.session_state["kernel"]
+        chat_completion = st.session_state["chat_completion"]
+        chat_history = st.session_state["chat_history"]
+
+        # Get assistant reply
+        try:
+            assistant_reply, chat_history = asyncio.run(
+                get_reply(kernel, user_txt, chat_history, chat_completion)
+            )
+        except Exception as e:
+            assistant_reply = f"Kernel Error: {str(e)}"
+
+        # Save assistant message to display
+        st.session_state["messages"].append({"role": "assistant", "content": assistant_reply})
+
+        # Clear input text
+        st.session_state["chat_temp"] = ""
+
 input_section_placeholder = st.empty()
 
-with st.container(height=100):
-    # Create columns for the text input and send button.
+with st.container(border=True):
     cols = st.columns([0.85, 0.15])
     with cols[0]:
-        user_input = st.text_input("", key="real_chat_input", placeholder="Ask me something...", label_visibility="hidden")
+        st.text_input("Your message:", key="chat_temp", placeholder="Ask me anything...", label_visibility="hidden", on_change=send_message)
     with cols[1]:
-        # The Send button appears after the text input.
         send_button = st.button("Send", key="send_button")
 
-# --- Process the Send button or non-empty input if needed ---
-if (send_button or user_input.strip()) and user_input.strip():
-    st.session_state["messages"].append({"role": "user", "content": user_input})
-    # Simulate an assistant reply; replace this with your Semantic Kernel call.
-    assistant_reply = f"Simulated reply for: {user_input}"
-    st.session_state["messages"].append({"role": "assistant", "content": assistant_reply})
-    # Clear the text input by resetting its key via session_state.
-    st.session_state["real_chat_input"] = ""
-    st.experimental_rerun()
+# -----------------------------------------------------------------------------
+# Process the Send button / user input:
+if send_button:
+    send_message()
