@@ -1,12 +1,30 @@
 import os
-import asyncio
 
 from dotenv import load_dotenv
 import semantic_kernel as sk
-from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion, AzureChatPromptExecutionSettings
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 from semantic_kernel.contents.chat_history import ChatHistory
 from semantic_kernel.connectors.ai.function_choice_behavior import FunctionChoiceBehavior
-# from src.plugins import get_active_plugins   <-- Plugins are ignored for now
+from semantic_kernel.core_plugins.time_plugin import TimePlugin
+from src.myskills import WeatherPlugin
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Function to get active plugins based on configuration
+def get_active_plugins(plugin_config):
+    plugins = {}
+    if plugin_config.get("TimePlugin"):
+        print("Appended TimePlugin")
+        plugins["TimePlugin"] = TimePlugin()
+    
+    # Weather plugin
+    if plugin_config.get("WeatherPlugin"):
+        print("Appended WeatherPlugin")
+        plugins["WeatherPlugin"] = WeatherPlugin()
+
+    return plugins
+
 
 def initialize_kernel(config: dict) -> sk.Kernel:
     """
@@ -17,14 +35,10 @@ def initialize_kernel(config: dict) -> sk.Kernel:
     # Create a new Kernel instance
     kernel = sk.Kernel()
 
-    # Load environment variables from .env file
-    load_dotenv()
-
     # Load essential environment variables for Azure OpenAI
     azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
     azure_api_key = os.getenv("AZURE_OPENAI_API_KEY", "")
-    print(f"Azure OpenAI API Key: {azure_api_key}")
-    print(f"Azure OpenAI Endpoint: {azure_endpoint}")
+
     # Here, we use config['selected_model'] to determine the deployment name.
     deployment_name = os.getenv(f"AZURE_OPENAI_CHAT_DEPLOYMENT_{config['selected_model'].upper().replace(' ', '_')}", "")
 
@@ -43,10 +57,12 @@ def initialize_kernel(config: dict) -> sk.Kernel:
     settings.max_tokens = config["max_tokens"]
     settings.temperature = config["temperature"]
 
-    # Plugins are attached here if used; for now they can be ignored.
-    # active_plugins = get_active_plugins(config["plugins"])
-    # for plugin_name, plugin_function in active_plugins.items():
-    #     kernel.add_plugin(plugin_name, plugin_function)
+    
+# Dynamically add plugins to the kernel
+    active_plugins = get_active_plugins(config["plugins"])
+    for plugin_name, plugin_function in active_plugins.items():
+        kernel.add_plugin(plugin_function, plugin_name=plugin_name)
+
 
     return kernel, chat_completion
 
@@ -57,7 +73,8 @@ async def get_reply(kernel: sk.Kernel, user_input: str, history: ChatHistory, ch
     and awaits a response.
     """
     # Enable planning or auto-selection if needed.
-    execution_settings = AzureChatPromptExecutionSettings()
+    service_id = chat_completion.service_id  
+    execution_settings = kernel.get_prompt_execution_settings_from_service_id(service_id)
     execution_settings.function_choice_behavior = FunctionChoiceBehavior.Auto()
     
     # Add the user's message to the chat history.

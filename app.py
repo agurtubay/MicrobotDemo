@@ -66,10 +66,8 @@ html, body, [class^='stMain']  {
     width:100%;
 }
 
-[class="st-emotion-cache-qcpnpn eu6p4el5"] {
-    position:fixed;
-    bottom:30px;
-    width: 73vw;
+[class="st-emotion-cache-hzygls eht7o1d3"] {
+    background-color: #DCEAF7;
 }
 </style>
 """
@@ -139,8 +137,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### Plugins")
     # (For now leave plugins aside – they will be empty in our kernel configuration.)
-    location_plugin = st.checkbox("Location", value=True)
-    weather_plugin = st.checkbox("Weather", value=True)
+    weather_plugin = st.checkbox("Weather", value=False)
     time_plugin = st.checkbox("Time", value=False)
 
     if st.button("Apply Configuration", key="apply-config"):
@@ -149,7 +146,10 @@ with st.sidebar:
             "selected_model": model,
             "max_tokens": max_tokens,
             "temperature": temperature,
-            "plugins": {}  # Ignore plugins for now, or you can include the values if you plan on using them later.
+            "plugins": {
+                "TimePlugin": time_plugin if time_plugin else None,
+                "WeatherPlugin": weather_plugin if weather_plugin else None,
+            }
         }
         st.session_state["kernel_config"] = config
         # Re-initialize the kernel with the new configuration.
@@ -160,9 +160,6 @@ with st.sidebar:
 ############################
 # MAIN AREA - CHAT DISPLAY
 ############################
-# ------------------------------------------------------------------------------------
-# 4. Display existing chat messages in bubble style
-# ------------------------------------------------------------------------------------
 for msg in st.session_state["messages"]:
     if msg["role"] == "user":
         # Right-aligned (green bubble)
@@ -198,41 +195,26 @@ for msg in st.session_state["messages"]:
 ############################
 # FIXED INPUT BAR AT THE BOTTOM
 ############################
-def send_message():
-    user_txt = st.session_state["chat_temp"].strip()
-    if user_txt:
-        # Save user message to display
-        st.session_state["messages"].append({"role": "user", "content": user_txt})
+# The built-in chat_input is automatically pinned to the bottom of the page
+user_input = st.chat_input("Ask me anything…")
 
-        # Retrieve kernel components
-        kernel = st.session_state["kernel"]
-        chat_completion = st.session_state["chat_completion"]
-        chat_history = st.session_state["chat_history"]
+if user_input:
+    # Add user message
+    st.session_state["messages"].append({"role": "user", "content": user_input})
 
-        # Get assistant reply
-        try:
-            assistant_reply, chat_history = asyncio.run(
-                get_reply(kernel, user_txt, chat_history, chat_completion)
-            )
-        except Exception as e:
-            assistant_reply = f"Kernel Error: {str(e)}"
+    # Retrieve kernel components
+    kernel = st.session_state["kernel"]
+    chat_completion = st.session_state["chat_completion"]
+    chat_history = st.session_state["chat_history"]
 
-        # Save assistant message to display
-        st.session_state["messages"].append({"role": "assistant", "content": assistant_reply})
+    # Get assistant reply
+    try:
+        assistant_reply, chat_history = asyncio.run(
+            get_reply(kernel, user_input, chat_history, chat_completion)
+        )
+    except Exception as e:
+        assistant_reply = f"Kernel Error: {str(e)}"
 
-        # Clear input text
-        st.session_state["chat_temp"] = ""
+    st.session_state["messages"].append({"role": "assistant", "content": assistant_reply}) 
 
-input_section_placeholder = st.empty()
-
-with st.container(border=True):
-    cols = st.columns([0.85, 0.15])
-    with cols[0]:
-        st.text_input("Your message:", key="chat_temp", placeholder="Ask me anything...", label_visibility="hidden", on_change=send_message)
-    with cols[1]:
-        send_button = st.button("Send", key="send_button")
-
-# -----------------------------------------------------------------------------
-# Process the Send button / user input:
-if send_button:
-    send_message()
+    st.rerun()
