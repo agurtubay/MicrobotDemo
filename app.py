@@ -81,6 +81,9 @@ if "kernel_config" not in st.session_state:
         "selected_model": "gpt-4o-mini",  # default model, adjust as needed
         "max_tokens": 100,                # default max tokens
         "temperature": 0.7,               # default temperature
+        "context_text": "You are a general purpose assistant.",
+        "filters_text": "",    
+        "output_format_text": "",
         "plugins": {}                     # plugins will be ignored for now
     }
     st.session_state["kernel_config"] = default_config
@@ -88,13 +91,9 @@ if "kernel_config" not in st.session_state:
 # Retrieve or create the Kernel and ChatCompletion objects
 if "kernel" not in st.session_state or "chat_completion" not in st.session_state:
     # Make sure your initialize_kernel returns (kernel, chat_completion) in that order.
-    st.session_state["kernel"], st.session_state["chat_completion"] = initialize_kernel(
+    st.session_state["kernel"], st.session_state["chat_completion"], st.session_state["chat_history"] = initialize_kernel(
         st.session_state["kernel_config"]
     )
-
-# Initialize the chat history
-if "chat_history" not in st.session_state:
-    st.session_state["chat_history"] = ChatHistory()
 
 # Keep track of messages to display in bubbles
 if "messages" not in st.session_state:
@@ -130,10 +129,18 @@ with header_col3:
 ############################
 with st.sidebar:
     st.markdown("### Model Parameters")
-    max_tokens = st.slider("Max Output Tokens", min_value=50, max_value=1000, value=100, step=10)
+    max_tokens = st.slider("Max Output Tokens", min_value=10, max_value=400, value=100, step=10)
     temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=0.7, step=0.1)
     model = st.selectbox("Model", ["gpt-4o-mini", "gpt-4o"])
     
+    st.markdown("---")
+    st.markdown("## Prompt Template Configuration")
+    
+    # 3 text boxes for context, filters, output format
+    context_text = st.text_area("Context", value="(Add the background or style instructions here)")
+    filters_text = st.text_area("Filters", value="(Add policy or restricted content instructions here)")
+    output_format_text = st.text_area("Output Format", value="(Explain how you want the answer formatted)")
+
     st.markdown("---")
     st.markdown("### Plugins")
     # (For now leave plugins aside – they will be empty in our kernel configuration.)
@@ -146,6 +153,10 @@ with st.sidebar:
             "selected_model": model,
             "max_tokens": max_tokens,
             "temperature": temperature,
+            "context_text": context_text,
+            "filters_text": filters_text,    
+            "output_format_text": output_format_text,
+            # Add plugins based on user selection
             "plugins": {
                 "TimePlugin": time_plugin if time_plugin else None,
                 "WeatherPlugin": weather_plugin if weather_plugin else None,
@@ -153,7 +164,7 @@ with st.sidebar:
         }
         st.session_state["kernel_config"] = config
         # Re-initialize the kernel with the new configuration.
-        st.session_state["kernel"], st.session_state["chat_completion"] = initialize_kernel(config)
+        st.session_state["kernel"], st.session_state["chat_completion"],  st.session_state["chat_history"] = initialize_kernel(config)
         st.session_state["messages"] = []  # Reset chat history
         st.success("Configuration applied. Chat history reset.")
 
@@ -206,11 +217,12 @@ if user_input:
     kernel = st.session_state["kernel"]
     chat_completion = st.session_state["chat_completion"]
     chat_history = st.session_state["chat_history"]
+    config = st.session_state["kernel_config"]
 
     # Get assistant reply
     try:
         assistant_reply, chat_history = asyncio.run(
-            get_reply(kernel, user_input, chat_history, chat_completion)
+            get_reply(config, kernel, user_input, chat_history, chat_completion)
         )
     except Exception as e:
         assistant_reply = f"Kernel Error: {str(e)}"

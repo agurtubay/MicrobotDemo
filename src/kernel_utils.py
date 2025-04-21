@@ -2,11 +2,13 @@ import os
 
 from dotenv import load_dotenv
 import semantic_kernel as sk
-from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion, AzureChatPromptExecutionSettings
 from semantic_kernel.contents.chat_history import ChatHistory
 from semantic_kernel.connectors.ai.function_choice_behavior import FunctionChoiceBehavior
 from semantic_kernel.core_plugins.time_plugin import TimePlugin
+
 from src.myskills import WeatherPlugin
+from src.prompt_template import build_system_message
 
 # Load environment variables from .env file
 load_dotenv()
@@ -52,21 +54,22 @@ def initialize_kernel(config: dict) -> sk.Kernel:
     # Add Azure OpenAI service to the kernel
     kernel.add_service(chat_completion)
 
-    # Adjust kernel settings for max_tokens and temperature.
-    settings = kernel.get_prompt_execution_settings_from_service_id(config['selected_model'])
-    settings.max_tokens = config["max_tokens"]
-    settings.temperature = config["temperature"]
-
+    # Create a chat history object to store conversation history
+    chat_history = ChatHistory()
+    # Build the system message from your 3 text areas
+    system_msg = build_system_message(config["context_text"], config["filters_text"], config["output_format_text"])
+    # Add the system message to the kernel's chat history
+    chat_history.add_system_message(system_msg)
     
-# Dynamically add plugins to the kernel
+    # Dynamically add plugins to the kernel
     active_plugins = get_active_plugins(config["plugins"])
     for plugin_name, plugin_function in active_plugins.items():
         kernel.add_plugin(plugin_function, plugin_name=plugin_name)
 
 
-    return kernel, chat_completion
+    return kernel, chat_completion, chat_history
 
-async def get_reply(kernel: sk.Kernel, user_input: str, history: ChatHistory, chat_completion: AzureChatCompletion) -> str:
+async def get_reply(config:dict, kernel: sk.Kernel, user_input: str, history: ChatHistory, chat_completion: AzureChatCompletion) -> str:
     """
     Asynchronously get a reply from the Semantic Kernel.
     This function creates execution settings, adds the user message to history,
@@ -74,7 +77,11 @@ async def get_reply(kernel: sk.Kernel, user_input: str, history: ChatHistory, ch
     """
     # Enable planning or auto-selection if needed.
     service_id = chat_completion.service_id  
-    execution_settings = kernel.get_prompt_execution_settings_from_service_id(service_id)
+    execution_settings = AzureChatPromptExecutionSettings(
+        service_id=service_id,
+        max_tokens=config["max_tokens"],
+        temperature=config["temperature"],
+    )
     execution_settings.function_choice_behavior = FunctionChoiceBehavior.Auto()
     
     # Add the user's message to the chat history.
