@@ -1,7 +1,11 @@
 import asyncio
+
 import streamlit as st
+from pypdf import PdfReader
 from semantic_kernel.contents.chat_history import ChatHistory
+
 from src.kernel_utils import initialize_kernel, get_reply
+from src.indexing import init_memory, ingest_file, retrieve_relevant_chunks,  ingest_webpage, ingest_github_repo
 
 # ----- Custom CSS for dark theme and positioning -----
 CUSTOM_CSS = """
@@ -71,6 +75,10 @@ html, body, [class^='stMain']  {
 }
 </style>
 """
+def ensure_memory():
+    if "memory" not in st.session_state:
+        st.session_state["memory"] = init_memory()
+
 
 # -----------------------------------------------------------------------------
 # DEFAULT KERNEL INITIALIZATION
@@ -98,6 +106,9 @@ if "kernel" not in st.session_state or "chat_completion" not in st.session_state
 # Keep track of messages to display in bubbles
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
+
+if "uploaded_files" not in st.session_state:
+    st.session_state["uploaded_files"] = []
 
 # Set page config with wide layout
 st.set_page_config(page_title="MicroBot", layout="wide")
@@ -128,6 +139,15 @@ with header_col3:
 # SIDEBAR CONFIG
 ############################
 with st.sidebar:
+    st.markdown("### Website Tabs")
+    view = st.radio(
+        "Website Tabs",
+        ["💬 Chat", "📂 Upload & Index"],
+        key="selected_view",
+        label_visibility="hidden"      # makes the header bold
+    )
+    st.markdown("---")
+
     st.markdown("### Model Parameters")
     max_tokens = st.slider("Max Output Tokens", min_value=10, max_value=400, value=100, step=10)
     temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=0.7, step=0.1)
@@ -168,65 +188,154 @@ with st.sidebar:
         st.session_state["messages"] = []  # Reset chat history
         st.success("Configuration applied. Chat history reset.")
 
-############################
-# MAIN AREA - CHAT DISPLAY
-############################
-for msg in st.session_state["messages"]:
-    if msg["role"] == "user":
-        # Right-aligned (green bubble)
-        st.markdown(
-            f"""
-            <div style="background-color:#2E8B57;; 
-                        border-radius:10px; 
-                        margin:5px 0; 
-                        padding:8px 12px; 
-                        display:inline-block;
-                        max-width:80%;">
-                <strong>You:</strong> {msg['content']}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-    else:
-        # Left-aligned (dark bubble)
-        st.markdown(
-            f"""
-            <div style="background-color:#333333; 
-                        border-radius:10px; 
-                        margin:5px 0; 
-                        padding:8px 12px; 
-                        display:inline-block; 
-                        max-width:80%;">
-                <strong>Assistant:</strong> {msg['content']}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
 
-############################
-# FIXED INPUT BAR AT THE BOTTOM
-############################
-# The built-in chat_input is automatically pinned to the bottom of the page
-user_input = st.chat_input("Ask me anything…")
+if st.session_state.get("selected_view", "💬 Chat") == "💬 Chat":
+    ############################
+    # MAIN AREA - CHAT DISPLAY
+    ############################
+    for msg in st.session_state["messages"]:
+        if msg["role"] == "user":
+            # Right-aligned (green bubble)
+            st.markdown(
+                f"""
+                <div style="background-color:#2E8B57;; 
+                            border-radius:10px; 
+                            margin:5px 0; 
+                            padding:8px 12px; 
+                            display:inline-block;
+                            max-width:80%;">
+                    <strong>You:</strong> {msg['content']}
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        else:
+            # Left-aligned (dark bubble)
+            st.markdown(
+                f"""
+                <div style="background-color:#333333; 
+                            border-radius:10px; 
+                            margin:5px 0; 
+                            padding:8px 12px; 
+                            display:inline-block; 
+                            max-width:80%;">
+                    <strong>Assistant:</strong> {msg['content']}
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
-if user_input:
-    # Add user message
-    st.session_state["messages"].append({"role": "user", "content": user_input})
+    ############################
+    # FIXED INPUT BAR AT THE BOTTOM
+    ############################
+    # The built-in chat_input is automatically pinned to the bottom of the page
+    user_input = st.chat_input("Ask me anything…")
 
-    # Retrieve kernel components
-    kernel = st.session_state["kernel"]
-    chat_completion = st.session_state["chat_completion"]
-    chat_history = st.session_state["chat_history"]
-    config = st.session_state["kernel_config"]
+    if user_input:
+        # Add user message
+        st.session_state["messages"].append({"role": "user", "content": user_input})
 
-    # Get assistant reply
-    try:
-        assistant_reply, chat_history = asyncio.run(
-            get_reply(config, kernel, user_input, chat_history, chat_completion)
-        )
-    except Exception as e:
-        assistant_reply = f"Kernel Error: {str(e)}"
+         # Retrieve kernel components
+        kernel = st.session_state["kernel"]
+        chat_completion = st.session_state["chat_completion"]
+        chat_history = st.session_state["chat_history"]
+        config = st.session_state["kernel_config"]
 
-    st.session_state["messages"].append({"role": "assistant", "content": assistant_reply}) 
+        # ----------- RAG only if memory exists -----------------
+        if "memory" in st.session_state:
+            memory = st.session_state["memory"]
+            relevant_chunks = asyncio.run(
+                retrieve_relevant_chunks(memory, user_input, top_k=3)
+            )
+            rag_context = "\n\n".join(f"• {c}" for c in relevant_chunks)
+            final_user_input = (
+                f"Refer to the following knowledge if helpful:\n{rag_context}\n\n"
+                f"User question: {user_input}"
+            )
+        else:
+            final_user_input = user_input
+        # -------------------------------------------------------
 
-    st.rerun()
+        # Get assistant reply
+        try:
+            assistant_reply, chat_history = asyncio.run(
+                get_reply(config, kernel, final_user_input, chat_history, chat_completion)
+            )
+        except Exception as e:
+            assistant_reply = f"Kernel Error: {str(e)}"
+
+        st.session_state["messages"].append({"role": "assistant", "content": assistant_reply}) 
+
+        st.rerun()
+
+
+else:  # ------------- UPLOAD VIEW -------------
+    ensure_memory()                       
+    kernel  = st.session_state["kernel"]
+    memory  = st.session_state["memory"]
+
+    st.markdown("<h3>Add documents to your knowledge base</h3>", unsafe_allow_html=True)
+
+    files = st.file_uploader(
+        label="Drag‑drop or Browse",
+        type=["txt", "md", "pdf"],
+        accept_multiple_files=True,
+        key="file_uploader",
+    )
+    if files:
+        st.session_state["uploaded_files"] = files
+
+    if st.button("Index selected files") and st.session_state["uploaded_files"]:
+        ensure_memory()
+        kernel  = st.session_state["kernel"]
+        memory  = st.session_state["memory"]
+
+        for f in st.session_state["uploaded_files"]:
+            if f.type == "application/pdf" or f.name.lower().endswith(".pdf"):
+                reader = PdfReader(f)                         # f is a BytesIO
+                text   = "".join(page.extract_text() or "" for page in reader.pages)
+            else:
+                text = f.read().decode("utf-8", errors="ignore")
+            print(f"File {f.name} has {len(text)} characters  -> {text[:50]}...")
+            status = st.empty()                      # filename label
+            bar    = st.progress(0.0)                # visual bar
+
+            status.write(f"Embedding **{f.name}** …")
+
+            # define a tiny callback that the worker will call
+            def _update(frac):
+                bar.progress(frac)
+
+            asyncio.run(
+                ingest_file(kernel, memory, f.name, text, on_progress=_update)
+            )
+
+            bar.empty()      # remove the bar
+            status.success(f"Indexed {f.name} ✅")
+
+        st.success("All files indexed! 🎉")
+        st.session_state["uploaded_files"] = []
+
+
+    # -----------------------------------------------------------------
+    st.markdown("---")
+    st.markdown("<h3>Add webpages or a GitHub repo</h3>", unsafe_allow_html=True)
+
+    url_to_index = st.text_input("URL or GitHub repo")
+    idx_col1, idx_col2 = st.columns(2)
+    with idx_col1:
+        index_web_btn = st.button("Index webpage")
+    with idx_col2:
+        index_repo_btn = st.button("Index GitHub repo")
+
+    if index_web_btn and url_to_index:
+        ensure_memory()
+        with st.spinner("Fetching & embedding webpage…"):
+            asyncio.run(ingest_webpage(kernel, memory, url_to_index))   # you already wrote this helper
+        st.success("Webpage indexed!")
+
+    if index_repo_btn and url_to_index:
+        ensure_memory()
+        with st.spinner("Crawling & embedding repo…"):
+            asyncio.run(ingest_github_repo(kernel, memory, url_to_index))
+        st.success("Repository indexed!")
