@@ -1,6 +1,6 @@
 # myskills.py
 import requests
-import os
+import os, httpx, asyncio
 
 from geopy.geocoders import Nominatim
 from dotenv import load_dotenv
@@ -55,83 +55,96 @@ class WeatherPlugin:
             return f"Open-Meteo API request failed with status {weather_resp.status_code}"
         
 
-# graph_calendar_plugin.py
-class GraphCalendarPlugin:
-    """
-    A simple plugin to demonstrate how to call Microsoft Graph's
-    /me/events endpoint using an existing access token.
-    """
-
-    def __init__(self, access_token: str):
-        self.access_token = access_token
+class MathPlugin:
+    def __init__(self):
+        pass
 
     @kernel_function
-    async def list_calendar_events(
-        self,
-        top: Annotated[int, "Number of events to fetch"] = 5
-    ) -> str:
+    async def add(self, 
+                  a: Annotated[float, "First number"], 
+                  b: Annotated[float, "Second number"]) -> str:
         """
-        Lists the upcoming events in the user's primary calendar.
-        Example usage:
-          GraphCalendarPlugin.list_calendar_events "3"
-        to get the next 3 events.
+        Returns the sum of two numbers.
+        Example: 'MathPlugin.add 3 5' → "Result: 8.0"
         """
-        endpoint = f"https://graph.microsoft.com/v1.0/me/events?$top={top}&$orderby=start/dateTime"
-        headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json"
-        }
-        resp = requests.get(endpoint, headers=headers)
-        if resp.status_code == 200:
-            data = resp.json()
-            events = data.get("value", [])
-            if not events:
-                return "No upcoming events found."
-
-            lines = []
-            for e in events:
-                subject = e["subject"]
-                start = e["start"].get("dateTime")
-                end = e["end"].get("dateTime")
-                lines.append(f"Event: {subject}\n Start: {start}\n End:   {end}\n")
-            return "\n".join(lines)
-        else:
-            return f"Failed to fetch calendar events: {resp.status_code} - {resp.text}"
+        result = a + b
+        return f"Result: {result}"
 
     @kernel_function
-    async def create_calendar_event(
+    async def subtract(self, 
+                       a: Annotated[float, "First number"], 
+                       b: Annotated[float, "Second number"]) -> str:
+        """
+        Returns the difference of two numbers.
+        Example: 'MathPlugin.subtract 10 4' → "Result: 6.0"
+        """
+        result = a - b
+        return f"Result: {result}"
+
+    @kernel_function
+    async def multiply(self, 
+                       a: Annotated[float, "First number"], 
+                       b: Annotated[float, "Second number"]) -> str:
+        """
+        Returns the product of two numbers.
+        Example: 'MathPlugin.multiply 3 7' → "Result: 21.0"
+        """
+        result = a * b
+        return f"Result: {result}"
+
+    @kernel_function
+    async def divide(self, 
+                     a: Annotated[float, "Dividend"], 
+                     b: Annotated[float, "Divisor"]) -> str:
+        """
+        Returns the quotient of two numbers.
+        Example: 'MathPlugin.divide 8 2' → "Result: 4.0"
+        """
+        if b == 0:
+            return "Error: Division by zero is not allowed."
+        result = a / b
+        return f"Result: {result}"
+
+
+class InternetSearchPlugin:
+    def __init__(self, brave_api_key: str | None = None):
+        # Accept key explicitly or fall back to env-var
+        self._key = brave_api_key or os.getenv("BRAVE_API_KEY")
+        if not self._key:
+            raise ValueError(
+                "No API key provided. "
+                "Pass it to EdgeSearchPlugin(...) or set ***_API_KEY in your environment."
+            )
+        self._endpoint = "https://api.search.brave.com/res/v1/web/search"
+        self._headers  = {"X-Subscription-Token": self._key}
+        self._client   = httpx.AsyncClient(timeout=15)
+
+    # ---- internal helper --------------------------------------------------
+    async def _search_brave(self, query: str, count: int = 5) -> list[dict]:
+        params = {"q": query, "count": count, "safesearch": "strict"}
+        r = await self._client.get(self._endpoint, headers=self._headers, params=params)
+        r.raise_for_status()
+        items = r.json().get("web", {}).get("results", [])
+        return [
+            {"title": i["title"], "url": i["url"], "snippet": i["description"]}
+            for i in items
+        ]
+
+    @kernel_function
+    async def search(
         self,
-        subject: Annotated[str, "Event subject/title"],
-        start_datetime: Annotated[str, "Event start date/time in ISO8601 format"],
-        end_datetime: Annotated[str, "Event end date/time in ISO8601 format"]
+        query: Annotated[str, "Text to search for"],
+        count: Annotated[int, "Number of results to return"] = 5,
     ) -> str:
-        """
-        Creates a new event in the user's primary calendar.
-        Example call:
-          GraphCalendarPlugin.create_calendar_event
-            "Team Meeting" "2025-05-01T10:00:00" "2025-05-01T11:00:00"
-        """
-        endpoint = "https://graph.microsoft.com/v1.0/me/events"
-        headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json"
-        }
-        event_data = {
-            "subject": subject,
-            "start": {
-                "dateTime": start_datetime,
-                "timeZone": "UTC"  # or your local time zone
-            },
-            "end": {
-                "dateTime": end_datetime,
-                "timeZone": "UTC"
-            }
-        }
-
-        resp = requests.post(endpoint, headers=headers, json=event_data)
-        if resp.status_code in [200, 201]:
-            created = resp.json()
-            return f"Event created! ID: {created['id']}"
-        else:
-            return f"Failed to create event: {resp.status_code} - {resp.text}"
-
+        if not query:
+            return "You must provide a search query."
+        try:
+            results = await self._search_brave(query, count)
+        except Exception as exc:
+            return f"Search failed: {exc}"
+        if not results:
+            return "No results found."
+        return "\n".join(
+            f"{idx}. {r['title']} – {r['url']}\n   {r['snippet']}"
+            for idx, r in enumerate(results, 1)
+        )
