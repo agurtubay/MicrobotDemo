@@ -45,7 +45,7 @@ def _split_into_chunks(text:str, max_tokens:int=500, overlap:int=100):
         chunk = enc.decode(tokens[i : i + max_tokens])
         yield chunk
 
-async def ingest_file( kernel: sk.Kernel, memory: SemanticTextMemory, file_name: str, text: str, collection: str = "uploaded_docs", max_concurrency: int = 15, on_progress: Optional[Callable[[float], None]] = None) -> None:
+async def ingest_file( kernel: sk.Kernel, memory: SemanticTextMemory, file_name: str, text: str, collection: str = "uploaded_docs", max_concurrency: int = 3, on_progress: Optional[Callable[[float], None]] = None) -> None:
     """
     Break `text` into chunks, embed & store them **concurrently**.
     The optional `on_progress` is called with a 0‑1 fraction after

@@ -149,7 +149,7 @@ with st.sidebar:
     st.markdown("---")
 
     st.markdown("### Model Parameters")
-    max_tokens = st.slider("Max Output Tokens", min_value=10, max_value=400, value=100, step=10)
+    max_tokens = st.slider("Max Output Tokens", min_value=10, max_value=1000, value=100, step=10)
     temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=0.7, step=0.1)
     model = st.selectbox("Model", ["gpt-4o-mini", "gpt-4o"])
     
@@ -157,15 +157,17 @@ with st.sidebar:
     st.markdown("## Prompt Template Configuration")
     
     # 3 text boxes for context, filters, output format
-    context_text = st.text_area("Context", value="(Add the background or style instructions here)")
-    filters_text = st.text_area("Filters", value="(Add policy or restricted content instructions here)")
-    output_format_text = st.text_area("Output Format", value="(Explain how you want the answer formatted)")
+    context_text = st.text_area("Context", value="")
+    filters_text = st.text_area("Filters", value="")
+    output_format_text = st.text_area("Output Format", value="")
 
     st.markdown("---")
     st.markdown("### Plugins")
     # (For now leave plugins aside – they will be empty in our kernel configuration.)
     weather_plugin = st.checkbox("Weather", value=False)
     time_plugin = st.checkbox("Time", value=False)
+    math_plugin = st.checkbox("Math", value=False)
+    internet_plugin = st.checkbox("Internet Search", value=False)
 
     if st.button("Apply Configuration", key="apply-config"):
         # Build the configuration with the expected key names
@@ -180,6 +182,8 @@ with st.sidebar:
             "plugins": {
                 "TimePlugin": time_plugin if time_plugin else None,
                 "WeatherPlugin": weather_plugin if weather_plugin else None,
+                "MathPlugin": math_plugin if math_plugin else None,
+                "InternetSearchPlugin": internet_plugin if internet_plugin else None
             }
         }
         st.session_state["kernel_config"] = config
@@ -296,7 +300,7 @@ else:  # ------------- UPLOAD VIEW -------------
                 text   = "".join(page.extract_text() or "" for page in reader.pages)
             else:
                 text = f.read().decode("utf-8", errors="ignore")
-            print(f"File {f.name} has {len(text)} characters  -> {text[:50]}...")
+            print(f"File {f.name} has {len(text)} characters")
             status = st.empty()                      # filename label
             bar    = st.progress(0.0)                # visual bar
 

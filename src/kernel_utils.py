@@ -7,7 +7,7 @@ from semantic_kernel.contents.chat_history import ChatHistory
 from semantic_kernel.connectors.ai.function_choice_behavior import FunctionChoiceBehavior
 from semantic_kernel.core_plugins.time_plugin import TimePlugin
 
-from src.myskills import WeatherPlugin
+from src.myskills import WeatherPlugin, MathPlugin, InternetSearchPlugin
 from src.prompt_template import build_system_message
 
 # Load environment variables from .env file
@@ -24,6 +24,16 @@ def get_active_plugins(plugin_config):
     if plugin_config.get("WeatherPlugin"):
         print("Appended WeatherPlugin")
         plugins["WeatherPlugin"] = WeatherPlugin()
+
+    # Math plugin
+    if plugin_config.get("MathPlugin"):
+        print("Appended MathPlugin")
+        plugins["MathPlugin"] = MathPlugin()
+
+    # Internet search plugin
+    if plugin_config.get("InternetSearchPlugin"):
+        print("Appended InternetSearchPlugin")
+        plugins["InternetSearchPlugin"] = InternetSearchPlugin()
 
     return plugins
 
