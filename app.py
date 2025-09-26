@@ -151,7 +151,7 @@ with st.sidebar:
     st.markdown("### Model Parameters")
     max_tokens = st.slider("Max Output Tokens", min_value=10, max_value=1000, value=100, step=10)
     temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=0.7, step=0.1)
-    model = st.selectbox("Model", ["gpt-4o-mini", "gpt-4o"])
+    model = st.selectbox("Model", ["gpt-4o-mini", "gpt-5-mini"])
     
     st.markdown("---")
     st.markdown("## Prompt Template Configuration")
