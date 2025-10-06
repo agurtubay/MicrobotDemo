@@ -1,6 +1,5 @@
 # src/kernel_utils.py
 import os, sys, json, time, logging, functools, inspect
-from pathlib import Path
 from typing import Tuple
 
 # ── 1) Load .env EARLY (root .env, optional src/.env, or explicit path) ─────────
@@ -16,7 +15,7 @@ from semantic_kernel.contents.chat_history import ChatHistory
 from semantic_kernel.connectors.ai.function_choice_behavior import FunctionChoiceBehavior
 from semantic_kernel.core_plugins.time_plugin import TimePlugin
 
-from src.myskills import WeatherPlugin, MathPlugin, InternetSearchPlugin
+from src.myskills import WeatherPlugin, MathPlugin, InternetSearchPlugin, ChartsPlugin
 from src.prompt_template import build_system_message
 
 # ── 3) Tiny JSON logger to stdout (opt-in via MBOT_TRACE=1) ─────────────────────
@@ -92,14 +91,25 @@ def wrap_plugin_for_tracing(plugin, plugin_name, trace_fn):
 def get_active_plugins(plugin_config: dict) -> dict:
     plugins = {}
     if plugin_config.get("TimePlugin"):
-        print("Appended TimePlugin");  plugins["TimePlugin"] = TimePlugin()
+        print("Appended TimePlugin")
+        plugins["TimePlugin"] = TimePlugin()
+
     if plugin_config.get("WeatherPlugin"):
-        print("Appended WeatherPlugin"); plugins["WeatherPlugin"] = WeatherPlugin()
+        print("Appended WeatherPlugin")
+        plugins["WeatherPlugin"] = WeatherPlugin()
+
     if plugin_config.get("MathPlugin"):
-        print("Appended MathPlugin"); plugins["MathPlugin"] = MathPlugin()
+        print("Appended MathPlugin")
+        plugins["MathPlugin"] = MathPlugin()
+
     if plugin_config.get("InternetSearchPlugin") and os.getenv("BRAVE_API_KEY"):
-        print("Appended InternetSearchPlugin"); plugins["InternetSearchPlugin"] = InternetSearchPlugin()
-    return plugins  # :contentReference[oaicite:0]{index=0}
+        print("Appended InternetSearchPlugin")
+        plugins["InternetSearchPlugin"] = InternetSearchPlugin()
+
+    if plugin_config.get("ChartsPlugin", True):
+        print("Appended ChartsPlugin")
+        plugins["ChartsPlugin"] = ChartsPlugin()
+    return plugins 
 
 # ── 7) Dump the EXACT OpenAI-style tools SK will advertise (SK 1.28 safe) ─────
 def dump_advertised_tools_openai(kernel) -> list[dict]:

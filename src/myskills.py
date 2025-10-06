@@ -1,7 +1,10 @@
 # myskills.py
 import requests
-import os, httpx, asyncio
+import os, httpx, uuid
 
+import matplotlib.pyplot as plt
+
+from pathlib import Path
 from geopy.geocoders import Nominatim
 from dotenv import load_dotenv
 from typing import Annotated
@@ -148,3 +151,98 @@ class InternetSearchPlugin:
             f"{idx}. {r['title']} – {r['url']}\n   {r['snippet']}"
             for idx, r in enumerate(results, 1)
         )
+   
+# Where to store generated charts
+BASE_DIR  = Path(__file__).resolve().parents[1]   # project root (…/Microbot)
+CHART_DIR = BASE_DIR / "generated_charts"
+CHART_DIR.mkdir(parents=True, exist_ok=True)
+
+def _save_fig(fig, prefix="chart") -> str:
+    fname = f"{prefix}_{uuid.uuid4().hex[:8]}.png"
+    fpath = CHART_DIR / fname
+    fig.savefig(str(fpath), format="png", bbox_inches="tight", dpi=160)
+    plt.close(fig)
+    # IMPORTANT: return POSIX-style relative path (portable, short)
+    return f"generated_charts/{fname}"
+
+class ChartsPlugin:
+    @kernel_function(name="bar_chart", description="Bar chart. Returns relative PNG path.")
+    async def bar_chart(self, categories: list[str], values: list[float],
+                        title: str = "", x_label: str = "", y_label: str = "") -> str:
+        n = min(len(categories), len(values))
+        categories, values = categories[:n], values[:n]
+        fig, ax = plt.subplots()
+        ax.bar(categories, values)
+        if title: ax.set_title(title)
+        if x_label: ax.set_xlabel(x_label)
+        if y_label: ax.set_ylabel(y_label)
+        ax.tick_params(axis='x', rotation=45)
+        return _save_fig(fig, "bar")
+
+    @kernel_function(name="line_chart",
+                     description="Creates a line chart from x and y arrays. Returns local PNG file path.")
+    async def line_chart(self, x: list[float], y: list[float],
+                         title: str = "", x_label: str = "", y_label: str = "") -> str:
+        n = min(len(x), len(y))
+        x, y = x[:n], y[:n]
+        fig, ax = plt.subplots()
+        ax.plot(x, y)
+        if title: ax.set_title(title)
+        if x_label: ax.set_xlabel(x_label)
+        if y_label: ax.set_ylabel(y_label)
+        ax.tick_params(axis='x', rotation=45)
+        return _save_fig(fig, "line")
+
+    @kernel_function(name="area_chart",
+                     description="Creates an area chart from x and y arrays. Returns local PNG file path.")
+    async def area_chart(self, x: list[float], y: list[float],
+                         title: str = "", x_label: str = "", y_label: str = "") -> str:
+        n = min(len(x), len(y))
+        x, y = x[:n], y[:n]
+        fig, ax = plt.subplots()
+        ax.plot(x, y)
+        ax.fill_between(x, y, step=None, alpha=0.2)
+        if title: ax.set_title(title)
+        if x_label: ax.set_xlabel(x_label)
+        if y_label: ax.set_ylabel(y_label)
+        ax.tick_params(axis='x', rotation=45)
+        return _save_fig(fig, "area")
+
+    @kernel_function(name="scatter_chart",
+                     description="Creates a scatter chart from x and y arrays. Returns local PNG file path.")
+    async def scatter_chart(self, x: list[float], y: list[float],
+                            title: str = "", x_label: str = "", y_label: str = "") -> str:
+        n = min(len(x), len(y))
+        x, y = x[:n], y[:n]
+        fig, ax = plt.subplots()
+        ax.scatter(x, y)
+        if title: ax.set_title(title)
+        if x_label: ax.set_xlabel(x_label)
+        if y_label: ax.set_ylabel(y_label)
+        ax.tick_params(axis='x', rotation=45)
+        return _save_fig(fig, "scatter")
+
+    @kernel_function(name="hist_chart",
+                     description="Creates a histogram from numeric values. Returns local PNG file path.")
+    async def hist_chart(self, values: list[float], bins: int = 10,
+                         title: str = "", x_label: str = "", y_label: str = "Count") -> str:
+        fig, ax = plt.subplots()
+        ax.hist(values, bins=bins or 10)
+        if title: ax.set_title(title)
+        if x_label: ax.set_xlabel(x_label)
+        if y_label: ax.set_ylabel(y_label)
+        ax.tick_params(axis='x', rotation=45)
+        return _save_fig(fig, "hist")
+
+    @kernel_function(name="box_chart",
+                     description="Creates a boxplot from groups (list of numeric arrays). Returns local PNG file path.")
+    async def box_chart(self, groups: list[list[float]], group_labels: list[str] | None = None,
+                        title: str = "", y_label: str = "") -> str:
+        fig, ax = plt.subplots()
+        if group_labels and len(group_labels) == len(groups):
+            ax.boxplot(groups, labels=group_labels, vert=True)
+        else:
+            ax.boxplot(groups, vert=True)
+        if title: ax.set_title(title)
+        if y_label: ax.set_ylabel(y_label)
+        return _save_fig(fig, "box")
